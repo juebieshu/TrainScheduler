@@ -77,6 +77,7 @@ namespace TrainScheduler.TimeTable
 
         public static void Deinit()
         {
+            LineScheduleService.Reset();
             TimeTable = null;
             DefaultTimeTable = null;
         }

@@ -34,6 +34,14 @@ namespace TrainScheduler.TimeTable
         public bool UseDefaultTimeTable { get; set; } = false;
 
         /// <summary>
+        /// trueの場合、末班車発車時刻を過ぎると路線をStoppedにして市民が乗らないようにし、
+        /// 翌営業開始時刻（最初の発車時刻）になったら再び有効にする。
+        /// AutoClose = true 且つ Enabled = true の路線のみ動作する。
+        /// </summary>
+        [XmlAttribute("AutoClose")]
+        public bool AutoClose { get; set; } = false;
+
+        /// <summary>
         /// FirstToAll = 最初の駅の出発時刻を路線内の全駅に適用
         /// EachStop = 駅ごとに設定
         /// </summary>
