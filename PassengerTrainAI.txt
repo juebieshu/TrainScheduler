@@ -1,0 +1,872 @@
+using System;
+using ColossalFramework;
+using ColossalFramework.Globalization;
+using ColossalFramework.Math;
+using UnityEngine;
+
+// Token: 0x0200067C RID: 1660
+public class PassengerTrainAI : TrainAI
+{
+	// Token: 0x17000513 RID: 1299
+	// (get) Token: 0x06004C7E RID: 19582 RVA: 0x00370DE0 File Offset: 0x0036F1E0
+	public override VehicleInfo.VehicleCategory vehicleCategory
+	{
+		get
+		{
+			return VehicleInfo.VehicleCategory.PassengerTrain;
+		}
+	}
+
+	// Token: 0x06004C7F RID: 19583 RVA: 0x00370DE8 File Offset: 0x0036F1E8
+	public override void InitializeAI()
+	{
+		base.InitializeAI();
+		if (this.m_arriveEffect != null)
+		{
+			this.m_arriveEffect.InitializeEffect();
+		}
+	}
+
+	// Token: 0x06004C80 RID: 19584 RVA: 0x00370E0C File Offset: 0x0036F20C
+	public override void ReleaseAI()
+	{
+		if (this.m_arriveEffect != null)
+		{
+			this.m_arriveEffect.ReleaseEffect();
+		}
+		base.ReleaseAI();
+	}
+
+	// Token: 0x06004C81 RID: 19585 RVA: 0x00370E30 File Offset: 0x0036F230
+	public override Color GetColor(ushort vehicleID, ref Vehicle data, InfoManager.InfoMode infoMode, InfoManager.SubInfoMode subInfoMode)
+	{
+		if (data.m_leadingVehicle != 0)
+		{
+			VehicleManager instance = Singleton<VehicleManager>.instance;
+			ushort firstVehicle = data.GetFirstVehicle(vehicleID);
+			VehicleInfo info = instance.m_vehicles.m_buffer[(int)firstVehicle].Info;
+			return info.m_vehicleAI.GetColor(firstVehicle, ref instance.m_vehicles.m_buffer[(int)firstVehicle], infoMode, subInfoMode);
+		}
+		if (infoMode != InfoManager.InfoMode.None && infoMode != InfoManager.InfoMode.Transport)
+		{
+			if (infoMode != InfoManager.InfoMode.TrafficRoutes)
+			{
+				if (infoMode != InfoManager.InfoMode.Tourism)
+				{
+					return base.GetColor(vehicleID, ref data, infoMode, subInfoMode);
+				}
+				if (subInfoMode == InfoManager.SubInfoMode.Default)
+				{
+					int num = (int)data.m_touristCount;
+					VehicleManager instance2 = Singleton<VehicleManager>.instance;
+					ushort num2 = data.m_trailingVehicle;
+					int num3 = 0;
+					while (num2 != 0)
+					{
+						num += (int)instance2.m_vehicles.m_buffer[(int)num2].m_touristCount;
+						num2 = instance2.m_vehicles.m_buffer[(int)num2].m_trailingVehicle;
+						if (++num3 > 16384)
+						{
+							CODebugBase<LogChannel>.Error(LogChannel.Core, "Invalid list detected!\n" + Environment.StackTrace);
+							break;
+						}
+					}
+					if (num != 0)
+					{
+						return CommonBuildingAI.GetTourismColor(num);
+					}
+				}
+				return Singleton<InfoManager>.instance.m_properties.m_neutralColor;
+			}
+			else
+			{
+				if (subInfoMode != InfoManager.SubInfoMode.Default)
+				{
+					return Singleton<InfoManager>.instance.m_properties.m_neutralColor;
+				}
+				InstanceID empty = InstanceID.Empty;
+				empty.Vehicle = vehicleID;
+				if (Singleton<NetManager>.instance.PathVisualizer.IsPathVisible(empty))
+				{
+					return Singleton<InfoManager>.instance.m_properties.m_routeColors[3];
+				}
+				return Singleton<InfoManager>.instance.m_properties.m_neutralColor;
+			}
+		}
+		else
+		{
+			ushort transportLine = data.m_transportLine;
+			if (transportLine != 0)
+			{
+				return Singleton<TransportManager>.instance.m_lines.m_buffer[(int)transportLine].GetColor();
+			}
+			return Singleton<TransportManager>.instance.m_properties.m_transportColors[(int)this.m_transportInfo.m_transportType];
+		}
+	}
+
+	// Token: 0x06004C82 RID: 19586 RVA: 0x00371020 File Offset: 0x0036F420
+	public override string GetLocalizedStatus(ushort vehicleID, ref Vehicle data, out InstanceID target)
+	{
+		if ((data.m_flags & Vehicle.Flags.Stopped) != (Vehicle.Flags)0)
+		{
+			target = InstanceID.Empty;
+			return Locale.Get("VEHICLE_STATUS_PASSENGERTRAIN_STOPPED");
+		}
+		if ((data.m_flags & Vehicle.Flags.GoingBack) != (Vehicle.Flags)0)
+		{
+			target = InstanceID.Empty;
+			return Locale.Get("VEHICLE_STATUS_PASSENGERTRAIN_RETURN");
+		}
+		if (data.m_transportLine != 0)
+		{
+			target = InstanceID.Empty;
+			return Locale.Get("VEHICLE_STATUS_PASSENGERTRAIN_ROUTE");
+		}
+		if (data.m_targetBuilding != 0)
+		{
+			if ((data.m_flags & Vehicle.Flags.DummyTraffic) != (Vehicle.Flags)0)
+			{
+				target = InstanceID.Empty;
+				target.Building = data.m_targetBuilding;
+				return Locale.Get("VEHICLE_STATUS_PASSENGERTRAIN_TRANSPORT");
+			}
+			Vector3 position = Singleton<NetManager>.instance.m_nodes.m_buffer[(int)data.m_targetBuilding].m_position;
+			ushort num = Singleton<BuildingManager>.instance.FindTransportBuilding(position, 128f, this.m_transportInfo.m_transportType);
+			if (num != 0)
+			{
+				ushort num2 = Building.FindParentBuilding(num);
+				if (num2 != 0)
+				{
+					num = num2;
+				}
+				target = InstanceID.Empty;
+				target.Building = num;
+				return Locale.Get("VEHICLE_STATUS_PASSENGERTRAIN_TRANSPORT");
+			}
+		}
+		target = InstanceID.Empty;
+		return Locale.Get("VEHICLE_STATUS_CONFUSED");
+	}
+
+	// Token: 0x06004C83 RID: 19587 RVA: 0x0037115D File Offset: 0x0036F55D
+	public override string GetLocalizedStatus(ushort parkedVehicleID, ref VehicleParked data, out InstanceID target)
+	{
+		target = InstanceID.Empty;
+		return Locale.Get("VEHICLE_STATUS_PASSENGERTRAIN_STOPPED");
+	}
+
+	// Token: 0x06004C84 RID: 19588 RVA: 0x00371174 File Offset: 0x0036F574
+	public override void GetBufferStatus(ushort vehicleID, ref Vehicle data, out string localeKey, out int current, out int max)
+	{
+		localeKey = "Default";
+		current = (int)data.m_transferSize;
+		max = this.m_passengerCapacity;
+		if (data.m_leadingVehicle == 0)
+		{
+			VehicleManager instance = Singleton<VehicleManager>.instance;
+			ushort num = data.m_trailingVehicle;
+			int num2 = 0;
+			while (num != 0)
+			{
+				VehicleInfo info = instance.m_vehicles.m_buffer[(int)num].Info;
+				if (instance.m_vehicles.m_buffer[(int)num].m_leadingVehicle != 0)
+				{
+					int num3;
+					int num4;
+					info.m_vehicleAI.GetBufferStatus(num, ref instance.m_vehicles.m_buffer[(int)num], out localeKey, out num3, out num4);
+					current += num3;
+					max += num4;
+				}
+				num = instance.m_vehicles.m_buffer[(int)num].m_trailingVehicle;
+				if (++num2 > 16384)
+				{
+					CODebugBase<LogChannel>.Error(LogChannel.Core, "Invalid list detected!\n" + Environment.StackTrace);
+					break;
+				}
+			}
+		}
+		if ((data.m_flags & Vehicle.Flags.DummyTraffic) != (Vehicle.Flags)0)
+		{
+			Randomizer randomizer;
+			randomizer..ctor((int)vehicleID);
+			current = randomizer.Int32(max >> 1, max);
+		}
+	}
+
+	// Token: 0x06004C85 RID: 19589 RVA: 0x00371290 File Offset: 0x0036F690
+	public override bool GetProgressStatus(ushort vehicleID, ref Vehicle data, out float current, out float max)
+	{
+		ushort transportLine = data.m_transportLine;
+		ushort targetBuilding = data.m_targetBuilding;
+		if (transportLine != 0 && targetBuilding != 0)
+		{
+			float num;
+			float num2;
+			float num3;
+			Singleton<TransportManager>.instance.m_lines.m_buffer[(int)transportLine].GetStopProgress(targetBuilding, out num, out num2, out num3);
+			uint path = data.m_path;
+			bool flag;
+			if (path == 0U || (data.m_flags & Vehicle.Flags.WaitingPath) != (Vehicle.Flags)0)
+			{
+				current = num;
+				flag = false;
+			}
+			else
+			{
+				current = BusAI.GetPathProgress(path, (int)data.m_pathPositionIndex, num, num2, out flag);
+			}
+			max = num3;
+			return flag;
+		}
+		current = 0f;
+		max = 0f;
+		return true;
+	}
+
+	// Token: 0x06004C86 RID: 19590 RVA: 0x00371330 File Offset: 0x0036F730
+	public override void CreateVehicle(ushort vehicleID, ref Vehicle data)
+	{
+		base.CreateVehicle(vehicleID, ref data);
+		Singleton<CitizenManager>.instance.CreateUnits(out data.m_citizenUnits, ref Singleton<SimulationManager>.instance.m_randomizer, 0, vehicleID, 0, 0, 0, this.m_passengerCapacity, 0, 0);
+	}
+
+	// Token: 0x06004C87 RID: 19591 RVA: 0x0037136D File Offset: 0x0036F76D
+	public override void ReleaseVehicle(ushort vehicleID, ref Vehicle data)
+	{
+		this.RemoveSource(vehicleID, ref data);
+		this.RemoveTarget(vehicleID, ref data);
+		this.RemoveLine(vehicleID, ref data);
+		base.ReleaseVehicle(vehicleID, ref data);
+	}
+
+	// Token: 0x06004C88 RID: 19592 RVA: 0x00371390 File Offset: 0x0036F790
+	public override void LoadVehicle(ushort vehicleID, ref Vehicle data)
+	{
+		base.LoadVehicle(vehicleID, ref data);
+		if (data.m_sourceBuilding != 0)
+		{
+			Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)data.m_sourceBuilding].AddOwnVehicle(vehicleID, ref data);
+		}
+		if ((data.m_flags & Vehicle.Flags.DummyTraffic) != (Vehicle.Flags)0 && data.m_targetBuilding != 0)
+		{
+			Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)data.m_targetBuilding].AddGuestVehicle(vehicleID, ref data);
+		}
+		if (data.m_transportLine != 0)
+		{
+			Singleton<TransportManager>.instance.m_lines.m_buffer[(int)data.m_transportLine].AddVehicle(vehicleID, ref data, false);
+		}
+		base.EnsureCitizenUnits(vehicleID, ref data, this.m_passengerCapacity);
+	}
+
+	// Token: 0x06004C89 RID: 19593 RVA: 0x0037144C File Offset: 0x0036F84C
+	public override void SetSource(ushort vehicleID, ref Vehicle data, ushort sourceBuilding)
+	{
+		bool flag = data.m_sourceBuilding != 0;
+		if (flag)
+		{
+			this.RemoveSource(vehicleID, ref data);
+		}
+		data.m_sourceBuilding = sourceBuilding;
+		if (sourceBuilding != 0)
+		{
+			if (!flag)
+			{
+				data.Unspawn(vehicleID);
+				data.m_targetPos0 = data.GetLastFramePosition();
+				data.m_targetPos0.w = 2f;
+				data.m_targetPos1 = data.m_targetPos0;
+				data.m_targetPos2 = data.m_targetPos0;
+				data.m_targetPos3 = data.m_targetPos0;
+			}
+			Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)sourceBuilding].AddOwnVehicle(vehicleID, ref data);
+		}
+	}
+
+	// Token: 0x06004C8A RID: 19594 RVA: 0x003714F0 File Offset: 0x0036F8F0
+	public override void SetTarget(ushort vehicleID, ref Vehicle data, ushort targetBuilding)
+	{
+		if ((data.m_flags & Vehicle.Flags.DummyTraffic) != (Vehicle.Flags)0)
+		{
+			if (targetBuilding != data.m_targetBuilding)
+			{
+				this.RemoveTarget(vehicleID, ref data);
+				data.m_targetBuilding = targetBuilding;
+				if (targetBuilding != 0)
+				{
+					Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)targetBuilding].AddGuestVehicle(vehicleID, ref data);
+				}
+			}
+			if (!this.StartPathFind(vehicleID, ref data))
+			{
+				data.Unspawn(vehicleID);
+			}
+		}
+		else
+		{
+			data.m_targetBuilding = targetBuilding;
+			if (!this.StartPathFind(vehicleID, ref data))
+			{
+				data.Unspawn(vehicleID);
+			}
+		}
+	}
+
+	// Token: 0x06004C8B RID: 19595 RVA: 0x00371580 File Offset: 0x0036F980
+	public override void BuildingRelocated(ushort vehicleID, ref Vehicle data, ushort building)
+	{
+		base.BuildingRelocated(vehicleID, ref data, building);
+		if ((data.m_flags & Vehicle.Flags.GoingBack) != (Vehicle.Flags)0)
+		{
+			if (building == data.m_sourceBuilding)
+			{
+				this.InvalidPath(vehicleID, ref data, vehicleID, ref data);
+			}
+		}
+		else if ((data.m_flags & Vehicle.Flags.DummyTraffic) != (Vehicle.Flags)0 && building == data.m_targetBuilding)
+		{
+			this.InvalidPath(vehicleID, ref data, vehicleID, ref data);
+		}
+	}
+
+	// Token: 0x06004C8C RID: 19596 RVA: 0x003715EC File Offset: 0x0036F9EC
+	public override void SetTransportLine(ushort vehicleID, ref Vehicle data, ushort transportLine)
+	{
+		this.RemoveLine(vehicleID, ref data);
+		data.m_transportLine = transportLine;
+		if (transportLine != 0)
+		{
+			Singleton<TransportManager>.instance.m_lines.m_buffer[(int)transportLine].AddVehicle(vehicleID, ref data, true);
+		}
+		else
+		{
+			data.m_flags |= Vehicle.Flags.GoingBack;
+		}
+		if (!this.StartPathFind(vehicleID, ref data))
+		{
+			data.Unspawn(vehicleID);
+		}
+	}
+
+	// Token: 0x06004C8D RID: 19597 RVA: 0x00371658 File Offset: 0x0036FA58
+	public override void StartTransfer(ushort vehicleID, ref Vehicle data, TransferManager.TransferReason reason, TransferManager.TransferOffer offer)
+	{
+		if (reason == (TransferManager.TransferReason)data.m_transferType)
+		{
+			if (offer.TransportLine != 0)
+			{
+				this.SetTransportLine(vehicleID, ref data, offer.TransportLine);
+			}
+			else if ((data.m_flags & Vehicle.Flags.DummyTraffic) != (Vehicle.Flags)0 && offer.Building != 0)
+			{
+				this.SetTarget(vehicleID, ref data, offer.Building);
+			}
+		}
+		else
+		{
+			base.StartTransfer(vehicleID, ref data, reason, offer);
+		}
+	}
+
+	// Token: 0x06004C8E RID: 19598 RVA: 0x003716CD File Offset: 0x0036FACD
+	public override void GetSize(ushort vehicleID, ref Vehicle data, out int size, out int max)
+	{
+		size = 0;
+		max = this.m_passengerCapacity;
+	}
+
+	// Token: 0x06004C8F RID: 19599 RVA: 0x003716DC File Offset: 0x0036FADC
+	public override void SimulationStep(ushort vehicleID, ref Vehicle vehicleData, ref Vehicle.Frame frameData, ushort leaderID, ref Vehicle leaderData, int lodPhysics)
+	{
+		if (vehicleData.m_leadingVehicle == 0)
+		{
+			if ((vehicleData.m_flags & Vehicle.Flags.Stopped) != (Vehicle.Flags)0)
+			{
+				vehicleData.m_waitCounter += 1;
+				if (this.CanLeave(vehicleID, ref vehicleData))
+				{
+					VehicleManager instance = Singleton<VehicleManager>.instance;
+					ushort num = vehicleData.m_trailingVehicle;
+					bool flag = true;
+					int num2 = 0;
+					while (num != 0)
+					{
+						VehicleInfo info = instance.m_vehicles.m_buffer[(int)num].Info;
+						if (!info.m_vehicleAI.CanLeave(num, ref instance.m_vehicles.m_buffer[(int)num]))
+						{
+							flag = false;
+							break;
+						}
+						num = instance.m_vehicles.m_buffer[(int)num].m_trailingVehicle;
+						if (++num2 > 16384)
+						{
+							CODebugBase<LogChannel>.Error(LogChannel.Core, "Invalid list detected!\n" + Environment.StackTrace);
+							break;
+						}
+					}
+					if (flag)
+					{
+						vehicleData.m_flags &= ~Vehicle.Flags.Stopped;
+						vehicleData.m_flags |= Vehicle.Flags.Leaving;
+						vehicleData.m_waitCounter = 0;
+						if (vehicleData.m_transportLine != 0)
+						{
+							Singleton<TransportManager>.instance.m_lines.m_buffer[(int)vehicleData.m_transportLine].LeaveStop(vehicleData.m_targetBuilding);
+						}
+					}
+				}
+			}
+			else if ((vehicleData.m_flags & (Vehicle.Flags.GoingBack | Vehicle.Flags.DummyTraffic)) == (Vehicle.Flags)0 && vehicleData.m_transportLine == 0 && vehicleData.m_targetBuilding != 0 && (Singleton<NetManager>.instance.m_nodes.m_buffer[(int)vehicleData.m_targetBuilding].m_flags & NetNode.Flags.Disabled) != NetNode.Flags.None)
+			{
+				this.SetTarget(vehicleID, ref vehicleData, 0);
+			}
+		}
+		base.SimulationStep(vehicleID, ref vehicleData, ref frameData, leaderID, ref leaderData, lodPhysics);
+	}
+
+	// Token: 0x06004C90 RID: 19600 RVA: 0x0037188A File Offset: 0x0036FC8A
+	private void RemoveSource(ushort vehicleID, ref Vehicle data)
+	{
+		if (data.m_sourceBuilding != 0)
+		{
+			Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)data.m_sourceBuilding].RemoveOwnVehicle(vehicleID, ref data);
+			data.m_sourceBuilding = 0;
+		}
+	}
+
+	// Token: 0x06004C91 RID: 19601 RVA: 0x003718C0 File Offset: 0x0036FCC0
+	private void RemoveTarget(ushort vehicleID, ref Vehicle data)
+	{
+		if ((data.m_flags & Vehicle.Flags.DummyTraffic) != (Vehicle.Flags)0 && data.m_targetBuilding != 0)
+		{
+			Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)data.m_targetBuilding].RemoveGuestVehicle(vehicleID, ref data);
+			data.m_targetBuilding = 0;
+		}
+	}
+
+	// Token: 0x06004C92 RID: 19602 RVA: 0x00371911 File Offset: 0x0036FD11
+	private void RemoveLine(ushort vehicleID, ref Vehicle data)
+	{
+		if (data.m_transportLine != 0)
+		{
+			Singleton<TransportManager>.instance.m_lines.m_buffer[(int)data.m_transportLine].RemoveVehicle(vehicleID, ref data);
+			data.m_transportLine = 0;
+		}
+	}
+
+	// Token: 0x06004C93 RID: 19603 RVA: 0x00371948 File Offset: 0x0036FD48
+	private bool ArriveAtTarget(ushort vehicleID, ref Vehicle data)
+	{
+		if (data.m_targetBuilding == 0 || (data.m_flags & Vehicle.Flags.DummyTraffic) != (Vehicle.Flags)0)
+		{
+			Singleton<VehicleManager>.instance.ReleaseVehicle(vehicleID);
+			return true;
+		}
+		ushort targetBuilding = data.m_targetBuilding;
+		ushort num = 0;
+		if (data.m_transportLine != 0)
+		{
+			num = TransportLine.GetNextStop(data.m_targetBuilding);
+		}
+		else if ((data.m_flags & (Vehicle.Flags.Importing | Vehicle.Flags.Exporting)) != (Vehicle.Flags)0)
+		{
+			num = TransportLine.GetNextStop(data.m_targetBuilding);
+			Vector3 lastFramePosition = data.GetLastFramePosition();
+			if (Mathf.Max(Mathf.Abs(lastFramePosition.x), Mathf.Abs(lastFramePosition.z)) > 4800f && this.CheckPassengers(vehicleID, ref data, targetBuilding, num) == 0)
+			{
+				num = 0;
+			}
+		}
+		this.UnloadPassengers(vehicleID, ref data, targetBuilding, num);
+		if (num == 0)
+		{
+			data.m_waitCounter = 0;
+			data.m_flags |= Vehicle.Flags.WaitingLoading;
+		}
+		else
+		{
+			data.m_targetBuilding = num;
+			if (!this.StartPathFind(vehicleID, ref data))
+			{
+				return true;
+			}
+			this.LoadPassengers(vehicleID, ref data, targetBuilding, num);
+			data.m_flags &= ~Vehicle.Flags.Arriving;
+			data.m_flags |= Vehicle.Flags.Stopped;
+			data.m_waitCounter = 0;
+		}
+		return false;
+	}
+
+	// Token: 0x06004C94 RID: 19604 RVA: 0x00371A7C File Offset: 0x0036FE7C
+	private void UnloadPassengers(ushort vehicleID, ref Vehicle data, ushort currentStop, ushort nextStop)
+	{
+		if (currentStop == 0)
+		{
+			return;
+		}
+		VehicleManager instance = Singleton<VehicleManager>.instance;
+		NetManager instance2 = Singleton<NetManager>.instance;
+		TransportManager instance3 = Singleton<TransportManager>.instance;
+		Vector3 position = instance2.m_nodes.m_buffer[(int)currentStop].m_position;
+		Vector3 vector = Vector3.zero;
+		if (nextStop != 0)
+		{
+			vector = instance2.m_nodes.m_buffer[(int)nextStop].m_position;
+		}
+		int num = 0;
+		int num2 = 0;
+		while (vehicleID != 0)
+		{
+			if (data.m_transportLine != 0)
+			{
+				BusAI.TransportArriveAtTarget(vehicleID, ref instance.m_vehicles.m_buffer[(int)vehicleID], position, vector, ref num, ref instance3.m_lines.m_buffer[(int)data.m_transportLine].m_passengers, nextStop == 0);
+			}
+			else
+			{
+				BusAI.TransportArriveAtTarget(vehicleID, ref instance.m_vehicles.m_buffer[(int)vehicleID], position, vector, ref num, ref instance3.m_passengers[(int)this.m_transportInfo.m_transportType], nextStop == 0);
+			}
+			vehicleID = instance.m_vehicles.m_buffer[(int)vehicleID].m_trailingVehicle;
+			if (++num2 > 16384)
+			{
+				CODebugBase<LogChannel>.Error(LogChannel.Core, "Invalid list detected!\n" + Environment.StackTrace);
+				break;
+			}
+		}
+		StatisticBase statisticBase = Singleton<StatisticsManager>.instance.Acquire<StatisticArray>(StatisticType.PassengerCount);
+		statisticBase.Acquire<StatisticInt32>((int)this.m_transportInfo.m_transportType, 17).Add(num);
+		num += (int)instance2.m_nodes.m_buffer[(int)currentStop].m_tempCounter;
+		instance2.m_nodes.m_buffer[(int)currentStop].m_tempCounter = (ushort)Mathf.Min(num, 65535);
+	}
+
+	// Token: 0x06004C95 RID: 19605 RVA: 0x00371C20 File Offset: 0x00370020
+	private int CheckPassengers(ushort vehicleID, ref Vehicle data, ushort currentStop, ushort nextStop)
+	{
+		if (currentStop == 0 || nextStop == 0)
+		{
+			return 0;
+		}
+		CitizenManager instance = Singleton<CitizenManager>.instance;
+		NetManager instance2 = Singleton<NetManager>.instance;
+		if (instance2.m_nodes.m_buffer[(int)currentStop].m_maxWaitTime != 255)
+		{
+			return 0;
+		}
+		Vector3 position = instance2.m_nodes.m_buffer[(int)currentStop].m_position;
+		Vector3 position2 = instance2.m_nodes.m_buffer[(int)nextStop].m_position;
+		int num = Mathf.Max((int)((position.x - 64f) / 8f + 1080f), 0);
+		int num2 = Mathf.Max((int)((position.z - 64f) / 8f + 1080f), 0);
+		int num3 = Mathf.Min((int)((position.x + 64f) / 8f + 1080f), 2159);
+		int num4 = Mathf.Min((int)((position.z + 64f) / 8f + 1080f), 2159);
+		int num5 = 0;
+		for (int i = num2; i <= num4; i++)
+		{
+			for (int j = num; j <= num3; j++)
+			{
+				ushort num6 = instance.m_citizenGrid[i * 2160 + j];
+				int num7 = 0;
+				while (num6 != 0)
+				{
+					ushort nextGridInstance = instance.m_instances.m_buffer[(int)num6].m_nextGridInstance;
+					if ((instance.m_instances.m_buffer[(int)num6].m_flags & CitizenInstance.Flags.WaitingTransport) != CitizenInstance.Flags.None)
+					{
+						Vector3 vector = instance.m_instances.m_buffer[(int)num6].m_targetPos;
+						float num8 = Vector3.SqrMagnitude(vector - position);
+						if (num8 < 4096f)
+						{
+							CitizenInfo info = instance.m_instances.m_buffer[(int)num6].Info;
+							if (info.m_citizenAI.TransportArriveAtSource(num6, ref instance.m_instances.m_buffer[(int)num6], position, position2))
+							{
+								num5++;
+							}
+						}
+					}
+					num6 = nextGridInstance;
+					if (++num7 > 65536)
+					{
+						CODebugBase<LogChannel>.Error(LogChannel.Core, "Invalid list detected!\n" + Environment.StackTrace);
+						break;
+					}
+				}
+			}
+		}
+		return num5;
+	}
+
+	// Token: 0x06004C96 RID: 19606 RVA: 0x00371E6C File Offset: 0x0037026C
+	private void LoadPassengers(ushort vehicleID, ref Vehicle data, ushort currentStop, ushort nextStop)
+	{
+		if (currentStop == 0 || nextStop == 0)
+		{
+			return;
+		}
+		CitizenManager instance = Singleton<CitizenManager>.instance;
+		VehicleManager instance2 = Singleton<VehicleManager>.instance;
+		NetManager instance3 = Singleton<NetManager>.instance;
+		Vector3 position = instance3.m_nodes.m_buffer[(int)currentStop].m_position;
+		Vector3 position2 = instance3.m_nodes.m_buffer[(int)nextStop].m_position;
+		instance3.m_nodes.m_buffer[(int)currentStop].m_maxWaitTime = 0;
+		int num = (int)instance3.m_nodes.m_buffer[(int)currentStop].m_tempCounter;
+		bool flag = false;
+		int num2 = Mathf.Max((int)((position.x - 64f) / 8f + 1080f), 0);
+		int num3 = Mathf.Max((int)((position.z - 64f) / 8f + 1080f), 0);
+		int num4 = Mathf.Min((int)((position.x + 64f) / 8f + 1080f), 2159);
+		int num5 = Mathf.Min((int)((position.z + 64f) / 8f + 1080f), 2159);
+		int num6 = num3;
+		while (num6 <= num5 && !flag)
+		{
+			int num7 = num2;
+			while (num7 <= num4 && !flag)
+			{
+				ushort num8 = instance.m_citizenGrid[num6 * 2160 + num7];
+				int num9 = 0;
+				while (num8 != 0 && !flag)
+				{
+					ushort nextGridInstance = instance.m_instances.m_buffer[(int)num8].m_nextGridInstance;
+					if ((instance.m_instances.m_buffer[(int)num8].m_flags & CitizenInstance.Flags.WaitingTransport) != CitizenInstance.Flags.None)
+					{
+						Vector3 vector = instance.m_instances.m_buffer[(int)num8].m_targetPos;
+						float num10 = Vector3.SqrMagnitude(vector - position);
+						if (num10 < 4096f)
+						{
+							CitizenInfo info = instance.m_instances.m_buffer[(int)num8].Info;
+							if (info.m_citizenAI.TransportArriveAtSource(num8, ref instance.m_instances.m_buffer[(int)num8], position, position2))
+							{
+								ushort num11;
+								uint num12;
+								if (Vehicle.GetClosestFreeTrailer(vehicleID, vector, out num11, out num12))
+								{
+									if (info.m_citizenAI.SetCurrentVehicle(num8, ref instance.m_instances.m_buffer[(int)num8], num11, num12, position))
+									{
+										num++;
+										Vehicle[] buffer = instance2.m_vehicles.m_buffer;
+										ushort num13 = num11;
+										buffer[(int)num13].m_transferSize = buffer[(int)num13].m_transferSize + 1;
+									}
+									else
+									{
+										flag = true;
+									}
+								}
+								else
+								{
+									flag = true;
+								}
+							}
+						}
+					}
+					num8 = nextGridInstance;
+					if (++num9 > 65536)
+					{
+						CODebugBase<LogChannel>.Error(LogChannel.Core, "Invalid list detected!\n" + Environment.StackTrace);
+						break;
+					}
+				}
+				num7++;
+			}
+			num6++;
+		}
+		instance3.m_nodes.m_buffer[(int)currentStop].m_tempCounter = (ushort)Mathf.Min(num, 65535);
+	}
+
+	// Token: 0x06004C97 RID: 19607 RVA: 0x0037216B File Offset: 0x0037056B
+	private bool ArriveAtSource(ushort vehicleID, ref Vehicle data)
+	{
+		if (data.m_sourceBuilding == 0)
+		{
+			Singleton<VehicleManager>.instance.ReleaseVehicle(vehicleID);
+			return true;
+		}
+		this.RemoveSource(vehicleID, ref data);
+		Singleton<VehicleManager>.instance.ReleaseVehicle(vehicleID);
+		return true;
+	}
+
+	// Token: 0x06004C98 RID: 19608 RVA: 0x0037219C File Offset: 0x0037059C
+	public override bool ArriveAtDestination(ushort vehicleID, ref Vehicle vehicleData)
+	{
+		if ((vehicleData.m_flags & Vehicle.Flags.GoingBack) != (Vehicle.Flags)0)
+		{
+			return this.ArriveAtSource(vehicleID, ref vehicleData);
+		}
+		if ((vehicleData.m_flags & Vehicle.Flags.WaitingLoading) == (Vehicle.Flags)0)
+		{
+			return this.ArriveAtTarget(vehicleID, ref vehicleData);
+		}
+		vehicleData.m_waitCounter = (byte)Mathf.Min((int)(vehicleData.m_waitCounter + 1), 255);
+		if (vehicleData.m_waitCounter >= 16)
+		{
+			Singleton<VehicleManager>.instance.ReleaseVehicle(vehicleID);
+			return true;
+		}
+		return false;
+	}
+
+	// Token: 0x06004C99 RID: 19609 RVA: 0x00372214 File Offset: 0x00370614
+	protected override void ArrivingToDestination(ushort vehicleID, ref Vehicle vehicleData)
+	{
+		base.ArrivingToDestination(vehicleID, ref vehicleData);
+		if (this.m_arriveEffect != null)
+		{
+			if ((vehicleData.m_flags & Vehicle.Flags.GoingBack) != (Vehicle.Flags)0)
+			{
+				if (vehicleData.m_sourceBuilding != 0)
+				{
+					Vector3 position = Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)vehicleData.m_sourceBuilding].m_position;
+					InstanceID instanceID = default(InstanceID);
+					instanceID.Building = vehicleData.m_sourceBuilding;
+					EffectInfo.SpawnArea spawnArea = new EffectInfo.SpawnArea(position, Vector3.up, 0f);
+					Singleton<EffectManager>.instance.DispatchEffect(this.m_arriveEffect, instanceID, spawnArea, Vector3.zero, 0f, 1f, Singleton<BuildingManager>.instance.m_audioGroup);
+				}
+			}
+			else if ((vehicleData.m_flags & Vehicle.Flags.DummyTraffic) != (Vehicle.Flags)0)
+			{
+				if (vehicleData.m_targetBuilding != 0)
+				{
+					Vector3 position2 = Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)vehicleData.m_targetBuilding].m_position;
+					InstanceID instanceID2 = default(InstanceID);
+					instanceID2.Building = vehicleData.m_targetBuilding;
+					EffectInfo.SpawnArea spawnArea2 = new EffectInfo.SpawnArea(position2, Vector3.up, 0f);
+					Singleton<EffectManager>.instance.DispatchEffect(this.m_arriveEffect, instanceID2, spawnArea2, Vector3.zero, 0f, 1f, Singleton<BuildingManager>.instance.m_audioGroup);
+				}
+			}
+			else if (vehicleData.m_targetBuilding != 0)
+			{
+				Vector3 position3 = Singleton<NetManager>.instance.m_nodes.m_buffer[(int)vehicleData.m_targetBuilding].m_position;
+				InstanceID instanceID3 = default(InstanceID);
+				instanceID3.NetNode = vehicleData.m_targetBuilding;
+				EffectInfo.SpawnArea spawnArea3 = new EffectInfo.SpawnArea(position3, Vector3.up, 0f);
+				Singleton<EffectManager>.instance.DispatchEffect(this.m_arriveEffect, instanceID3, spawnArea3, Vector3.zero, 0f, 1f, Singleton<BuildingManager>.instance.m_audioGroup);
+			}
+		}
+	}
+
+	// Token: 0x06004C9A RID: 19610 RVA: 0x003723E0 File Offset: 0x003707E0
+	protected override bool StartPathFind(ushort vehicleID, ref Vehicle vehicleData)
+	{
+		if (vehicleData.m_leadingVehicle == 0)
+		{
+			Vector3 vector;
+			if ((vehicleData.m_flags & Vehicle.Flags.Reversed) != (Vehicle.Flags)0)
+			{
+				ushort lastVehicle = vehicleData.GetLastVehicle(vehicleID);
+				vector = Singleton<VehicleManager>.instance.m_vehicles.m_buffer[(int)lastVehicle].m_targetPos0;
+			}
+			else
+			{
+				vector = vehicleData.m_targetPos0;
+			}
+			if ((vehicleData.m_flags & Vehicle.Flags.GoingBack) != (Vehicle.Flags)0)
+			{
+				if (vehicleData.m_sourceBuilding != 0)
+				{
+					Vector3 position = Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)vehicleData.m_sourceBuilding].m_position;
+					return this.StartPathFind(vehicleID, ref vehicleData, vector, position);
+				}
+			}
+			else if ((vehicleData.m_flags & Vehicle.Flags.DummyTraffic) != (Vehicle.Flags)0)
+			{
+				if (vehicleData.m_targetBuilding != 0)
+				{
+					Vector3 position2 = Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)vehicleData.m_targetBuilding].m_position;
+					return this.StartPathFind(vehicleID, ref vehicleData, vehicleData.m_targetPos0, position2);
+				}
+			}
+			else if (vehicleData.m_targetBuilding != 0)
+			{
+				Vector3 position3 = Singleton<NetManager>.instance.m_nodes.m_buffer[(int)vehicleData.m_targetBuilding].m_position;
+				return this.StartPathFind(vehicleID, ref vehicleData, vector, position3);
+			}
+		}
+		return false;
+	}
+
+	// Token: 0x06004C9B RID: 19611 RVA: 0x00372520 File Offset: 0x00370920
+	public override bool CanLeave(ushort vehicleID, ref Vehicle vehicleData)
+	{
+		return (vehicleData.m_leadingVehicle != 0 || vehicleData.m_waitCounter >= 12) && base.CanLeave(vehicleID, ref vehicleData) && (vehicleData.m_leadingVehicle != 0 || vehicleData.m_transportLine == 0 || Singleton<TransportManager>.instance.m_lines.m_buffer[(int)vehicleData.m_transportLine].CanLeaveStop(vehicleData.m_targetBuilding, vehicleData.m_waitCounter >> 4));
+	}
+
+	// Token: 0x06004C9C RID: 19612 RVA: 0x0037259C File Offset: 0x0037099C
+	public override int GetTicketPrice(ushort vehicleID, ref Vehicle vehicleData)
+	{
+		if (vehicleData.m_transportLine == 0)
+		{
+			return this.m_transportInfo.m_ticketPrice;
+		}
+		DistrictManager instance = Singleton<DistrictManager>.instance;
+		byte district = instance.GetDistrict(vehicleData.m_targetPos3);
+		DistrictPolicies.Services servicePolicies = instance.m_districts.m_buffer[(int)district].m_servicePolicies;
+		DistrictPolicies.Event @event = instance.m_districts.m_buffer[(int)district].m_eventPolicies & Singleton<EventManager>.instance.GetEventPolicyMask();
+		if ((servicePolicies & DistrictPolicies.Services.FreeTransport) != DistrictPolicies.Services.None)
+		{
+			District[] buffer = instance.m_districts.m_buffer;
+			byte b = district;
+			buffer[(int)b].m_servicePoliciesEffect = buffer[(int)b].m_servicePoliciesEffect | DistrictPolicies.Services.FreeTransport;
+			return 0;
+		}
+		if ((@event & DistrictPolicies.Event.ComeOneComeAll) != DistrictPolicies.Event.None)
+		{
+			District[] buffer2 = instance.m_districts.m_buffer;
+			byte b2 = district;
+			buffer2[(int)b2].m_eventPoliciesEffect = buffer2[(int)b2].m_eventPoliciesEffect | DistrictPolicies.Event.ComeOneComeAll;
+			return 0;
+		}
+		if ((servicePolicies & DistrictPolicies.Services.HighTicketPrices) != DistrictPolicies.Services.None)
+		{
+			District[] buffer3 = instance.m_districts.m_buffer;
+			byte b3 = district;
+			buffer3[(int)b3].m_servicePoliciesEffect = buffer3[(int)b3].m_servicePoliciesEffect | DistrictPolicies.Services.HighTicketPrices;
+			return (int)(Singleton<TransportManager>.instance.m_lines.m_buffer[(int)vehicleData.m_transportLine].m_ticketPrice * 5 / 4);
+		}
+		return (int)Singleton<TransportManager>.instance.m_lines.m_buffer[(int)vehicleData.m_transportLine].m_ticketPrice;
+	}
+
+	// Token: 0x06004C9D RID: 19613 RVA: 0x003726DC File Offset: 0x00370ADC
+	public override InstanceID GetOwnerID(ushort vehicleID, ref Vehicle vehicleData)
+	{
+		return default(InstanceID);
+	}
+
+	// Token: 0x06004C9E RID: 19614 RVA: 0x003726F4 File Offset: 0x00370AF4
+	public override InstanceID GetTargetID(ushort vehicleID, ref Vehicle vehicleData)
+	{
+		InstanceID instanceID = default(InstanceID);
+		if ((vehicleData.m_flags & Vehicle.Flags.GoingBack) != (Vehicle.Flags)0)
+		{
+			instanceID.Building = vehicleData.m_sourceBuilding;
+		}
+		else if ((vehicleData.m_flags & Vehicle.Flags.DummyTraffic) != (Vehicle.Flags)0)
+		{
+			instanceID.Building = vehicleData.m_targetBuilding;
+		}
+		else
+		{
+			instanceID.NetNode = vehicleData.m_targetBuilding;
+		}
+		return instanceID;
+	}
+
+	// Token: 0x06004C9F RID: 19615 RVA: 0x00372760 File Offset: 0x00370B60
+	public override int GetPassengerCapacity(bool includeTrailers)
+	{
+		int num = this.m_passengerCapacity;
+		if (includeTrailers && this.m_info.m_trailers != null)
+		{
+			foreach (VehicleInfo.VehicleTrailer vehicleTrailer in this.m_info.m_trailers)
+			{
+				if (vehicleTrailer.m_info != null)
+				{
+					num += vehicleTrailer.m_info.m_vehicleAI.GetPassengerCapacity(false);
+				}
+			}
+		}
+		return num;
+	}
+
+	// Token: 0x04005066 RID: 20582
+	public EffectInfo m_arriveEffect;
+
+	// Token: 0x04005067 RID: 20583
+	[CustomizableProperty("PassengerCapacity")]
+	public int m_passengerCapacity = 30;
+}
