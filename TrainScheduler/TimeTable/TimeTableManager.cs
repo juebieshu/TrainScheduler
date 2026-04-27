@@ -79,6 +79,8 @@ namespace TrainScheduler.TimeTable
         {
             TimeTable = null;
             DefaultTimeTable = null;
+            // レベルアンロード時に晩点データをクリアする。
+            DelayManager.ClearAll();
         }
 
         /// <summary>
