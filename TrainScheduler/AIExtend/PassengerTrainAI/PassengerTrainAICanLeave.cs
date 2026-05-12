@@ -99,6 +99,14 @@ namespace TrainScheduler.AIExtend.PassengerTrainAI
                 var to = Utility.GetBuildingName(Utility.GetNextStationBuildinIdByVehicle(ref vehicleData, vehicleID));
 
                 Debug.Log($"leaving: vehicle {vehicleID} on Line={transportLine} from {from} to {to} at {time}(HHmm)");
+
+                // 晩点超速機能：出発時刻を記録して蓄積晩点を計算する。
+                // Record this departure for delay tracking and overspeed probability calculation.
+                int currentTimeMinutes = DelayManager.HHmmToMinutes(time);
+                if (currentTimeMinutes >= 0)
+                {
+                    DelayManager.RecordDeparture(vehicleID, currentTimeMinutes, departures);
+                }
             }
 
             // オリジナルのCanLeave処理をスキップするためにfalseを返す（Harmonyの仕様）

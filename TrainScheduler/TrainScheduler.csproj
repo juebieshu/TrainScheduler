@@ -82,11 +82,13 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AIExtend\PassengerTrainAI\PassengerTrainAICanLeave.cs" />
+    <Compile Include="AIExtend\PassengerTrainAI\PassengerTrainAISimulationStep.cs" />
     <Compile Include="Settings\TrainSchedulerSettings.cs" />
     <Compile Include="Patches\TrainSchedulerPatcher.cs" />
     <Compile Include="Settings\SettingRecord.cs" />
     <Compile Include="TimeTable\TimeTableManager.cs" />
     <Compile Include="TimeTable\TimeTableRecord.cs" />
+    <Compile Include="TimeTable\DelayManager.cs" />
     <Compile Include="TrainScheduler.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="TrainSchedulerDataExtension.cs" />
